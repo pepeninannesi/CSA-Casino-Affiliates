@@ -222,7 +222,6 @@
 </section>
 </main><footer><div class="footer-inner"><div><div class="footer-brand">CSA CASINO AFFILIATES CASINO</div><div>A community casino concept for social game sessions.</div></div><div>Independent fan-made website concept · Not affiliated with or endorsed by Star Wars rights holders.</div></div></footer>
 <div class="toast" id="toast" role="status" aria-live="polite"></div><div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal"><h3 id="modalTitle">Session</h3><p id="modalText"></p><div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn" id="modalConfirm">Confirm</button></div></div></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const GAMES=[{name:'Blackjack',icon:'♠',desc:'Classic card table. Play a hand and enjoy the company.'},{name:'Locktulla',icon:'?',desc:'A fast-paced Outer Rim game. Place Low, High, or Vault bets and enter the result from Tabletop Simulator.'},{name:'Dice',icon:'⚄',desc:'A simple dice table for friendly rounds.'},{name:'Roulette',icon:'◉',desc:'A spin-inspired social table for your group.'},{name:'High Low',icon:'♢',desc:'Guess whether the next card will be higher or lower.'},{name:'Custom Games',icon:'✧',desc:'Host a special event with your own rules.'}];
 const KEY='csaCasinoAffiliatesSessionsV1';let pendingAction=null;
@@ -997,203 +996,121 @@ function detailUpdate(player,patch){
  });
 })();
 
-/* CSA Supabase authentication: shared identity and server-side roles */
+/* CSA local-only account and role preview. Not suitable for production authentication. */
+window.openPortal=function(){openTab('portal');var u=document.getElementById('loginUsername');if(u)setTimeout(function(){u.focus();},50);};
 (function(){
-  var SUPABASE_URL = 'https://qmaodespbolrykcthcsz.supabase.co';
-  var SUPABASE_PUBLISHABLE_KEY = 'sb_publishable__ab09-yEVTA75Tiva12RTQ_qtNk1QKW';
-  var supa = null;
-  var signedIn = false;
-  var currentUser = null;
-  var currentProfile = null;
-  var authReady = false;
-  var authBusy = false;
-
-  function safeRole(v){ return String(v || '').trim().toLowerCase(); }
-  function isManager(user, profile){
-    if(!user) return false;
-    var appRole = safeRole(user.app_metadata && user.app_metadata.role);
-    var profileRole = safeRole(profile && profile.role);
-    var profileRank = safeRole(profile && profile.rank);
-    var metaRole = safeRole(user.user_metadata && user.user_metadata.role);
-    return ['manager','overseer','csa casino affiliates manager'].includes(appRole) ||
-      ['manager','overseer','csa casino affiliates manager'].includes(profileRole) ||
-      ['owner','manager','overseer'].includes(profileRank) ||
-      ['manager','overseer','csa casino affiliates manager'].includes(metaRole);
+ var ACCOUNT_KEY='csaCasinoAccounts_v1';
+ var OWNER_USERNAME='Mamaza102030';
+ var OWNER_PASSWORD=''; // Do not store real manager passwords in public HTML.
+ var signedIn=false;
+ var currentUser=null;
+ function readAccounts(){
+  var accounts=[];
+  try{accounts=JSON.parse(window.localStorage.getItem(ACCOUNT_KEY)||'[]');if(!Array.isArray(accounts))accounts=[];}catch(e){accounts=[];}
+  if(!accounts.some(function(a){return String(a.username||'').toLowerCase()===OWNER_USERNAME.toLowerCase();})){
+   accounts.unshift({username:OWNER_USERNAME,password:'',role:'CSA Casino Affiliates Manager',rank:'Owner',loreName:'Mamaza',displayName:'Mamaza',robloxUsername:OWNER_USERNAME,faction:'',createdAt:new Date().toISOString()});
+   writeAccounts(accounts);
   }
-  function usernameFor(user, profile){
-    return (profile && profile.username) ||
-      (user && user.user_metadata && user.user_metadata.username) ||
-      ((user && user.email || '').split('@')[0]) || '';
+  return accounts;
+ }
+ function writeAccounts(accounts){try{window.localStorage.setItem(ACCOUNT_KEY,JSON.stringify(accounts));}catch(e){notify('Could not save accounts in this browser.');}}
+ function isManager(user){return !!user&&(user.role==='CSA Casino Affiliates Manager'||user.role==='Overseer'||user.rank==='Owner'||user.rank==='Manager');}
+ function renderAuth(){
+  window.csaIsSignedIn=function(){return !!signedIn&&!!currentUser;};
+  window.csaIsManager=function(){return isManager(currentUser);};
+  window.csaCurrentUser=currentUser;
+  var form=document.getElementById('csaLoginForm'),panel=document.getElementById('csaSignedInPanel'),tab=document.getElementById('csaManagerTab');
+  if(form)form.style.display=signedIn?'none':'block';
+  if(panel)panel.style.display=signedIn?'block':'none';
+  if(tab)tab.style.display=signedIn&&isManager(currentUser)?'inline-block':'none';
+  var hostPanel=document.getElementById('hostSessionPanel');if(hostPanel)hostPanel.style.display=signedIn&&isManager(currentUser)?'block':'none';
+  var hostInput=document.getElementById('hostName');if(hostInput){hostInput.value=signedIn&&isManager(currentUser)?currentUser.username:'';hostInput.readOnly=!!(signedIn&&isManager(currentUser));}
+  var sessionsTab=document.querySelector('.tab-link[data-tab="sessions"]');if(sessionsTab)sessionsTab.style.display=signedIn?'inline-flex':'none';
+  var operationsTab=document.querySelector('.tab-link[data-tab="operations"]');if(operationsTab)operationsTab.style.display=signedIn&&isManager(currentUser)?'inline-flex':'none';
+  var name=document.getElementById('csaSignedInName'),role=document.getElementById('csaSignedInRole');
+  if(name&&currentUser)name.textContent=currentUser.displayName||currentUser.username;
+  if(role&&currentUser)role.textContent=currentUser.role+(currentUser.rank&&currentUser.rank!=='Member'?' · '+currentUser.rank:'');
+  if(signedIn&&isManager(currentUser))renderCsaMemberDirectory();
+ }
+ window.renderCsaMemberDirectory=function(){
+  var body=document.getElementById('csaMemberDirectory'),count=document.getElementById('csaMemberCount');
+  if(!body)return;
+  if(!signedIn||!isManager(currentUser)){body.innerHTML='<tr><td colspan="6" class="empty">Manager or Overseer sign-in required.</td></tr>';return;}
+  var accounts=readAccounts();
+  if(count)count.textContent=accounts.length+' personnel account'+(accounts.length===1?'':'s');
+  body.innerHTML=accounts.map(function(a){
+   var created='—';try{if(a.createdAt)created=new Date(a.createdAt).toLocaleDateString();}catch(e){}
+   var lore=a.loreName||a.rank||'—';
+   return '<tr style="border-bottom:1px solid var(--line)">'+
+    '<td style="padding:11px 6px;min-width:110px"><strong>'+esc(lore)+'</strong></td>'+
+    '<td style="padding:11px 6px;min-width:110px">'+esc(a.robloxUsername||a.username||'—')+'</td>'+
+    '<td style="padding:11px 6px;min-width:150px">'+esc(a.role||'—')+(a.rank&&a.rank!=='Member'?' · '+esc(a.rank):'')+'</td>'+
+    '<td style="padding:11px 6px;min-width:130px">'+esc(a.faction||'—')+'</td>'+
+    '<td style="padding:11px 6px;white-space:nowrap">'+esc(created)+'</td>'+
+    '<td style="padding:11px 6px;white-space:nowrap"><button type="button" class="btn secondary" style="border-color:#a64b4b;color:#ffb1b1;padding:8px 10px" data-username="'+esc(a.username||'')+'" onclick="removeCsaMember(this.dataset.username)">Remove Member</button></td></tr>';
+  }).join('');
+ };
+ window.removeCsaMember=function(username){
+  if(!signedIn||!isManager(currentUser)){notify('Manager or Overseer permission required.');return;}
+  if(!window.confirm('Are you sure you want to remove this member?'))return;
+  var accounts=readAccounts();
+  var target=accounts.find(function(a){return String(a.username||'').toLowerCase()===String(username||'').toLowerCase();});
+  if(!target){notify('Member account could not be found.');return;}
+  accounts=accounts.filter(function(a){return String(a.username||'').toLowerCase()!==String(username||'').toLowerCase();});
+  writeAccounts(accounts);
+  if(currentUser&&String(currentUser.username||'').toLowerCase()===String(username||'').toLowerCase()){
+   signedIn=false;currentUser=null;window.csaCurrentUser=null;renderAuth();openTab('portal');
   }
-  function profileFor(user){
-    if(!supa || !user) return Promise.resolve(null);
-    return supa.from('csa_players')
-      .select('auth_user_id,username,display_name,credits,role,rank,lore_name,roblox_username,faction,created_at')
-      .eq('auth_user_id', user.id).maybeSingle()
-      .then(function(r){ if(r.error){console.warn('CSA profile lookup:',r.error.message);return null;} return r.data||null; });
+  renderCsaMemberDirectory();
+  notify('Removed member: '+username+'.');
+ };
+ document.addEventListener('submit',function(e){
+  var form=e.target;
+  if(form&&form.id==='csaLoginForm'){
+   e.preventDefault();
+   var username=String((document.getElementById('loginUsername')||{}).value||'').trim();
+   var password=String((document.getElementById('loginPassword')||{}).value||'');
+   if(!username||!password){notify('Enter your username and password.');return;}
+   var account=readAccounts().find(function(a){return String(a.username||'').toLowerCase()===username.toLowerCase()&&String(a.password||'')===password;});
+   if(!account){notify('Incorrect username or password.');return;}
+   signedIn=true;currentUser={username:account.username,displayName:account.displayName||account.loreName|| (account.username.toLowerCase()==='mamaza102030'?'Mamaza':account.username),role:account.role,rank:account.rank||'Member'};window.csaCurrentUser=currentUser;
+   renderAuth();var pass=document.getElementById('loginPassword');if(pass)pass.value='';
+   if(document.querySelector('.page.active')?.dataset.page==='sessions')openTab('sessions');
+   notify('Signed in as '+account.username+'.'+(isManager(currentUser)?' Manager tab enabled.':''));
+   return;
   }
-  function renderAuth(){
-    window.csaIsSignedIn=function(){return !!signedIn && !!currentUser;};
-    window.csaIsManager=function(){return isManager(currentUser,currentProfile);};
-    window.csaCurrentUser=currentUser;
-    var manager=isManager(currentUser,currentProfile);
-    var form=document.getElementById('csaLoginForm');
-    var panel=document.getElementById('csaSignedInPanel');
-    var tab=document.getElementById('csaManagerTab');
-    if(form) form.style.display=signedIn?'none':'block';
-    if(panel) panel.style.display=signedIn?'block':'none';
-    if(tab) tab.style.display=signedIn&&manager?'inline-block':'none';
-    var hostPanel=document.getElementById('hostSessionPanel');
-    if(hostPanel) hostPanel.style.display=signedIn&&manager?'block':'none';
-    var hostInput=document.getElementById('hostName');
-    if(hostInput){hostInput.value=signedIn&&manager?usernameFor(currentUser,currentProfile):'';hostInput.readOnly=!!(signedIn&&manager);}
-    var sessionsTab=document.querySelector('.tab-link[data-tab="sessions"]');
-    if(sessionsTab) sessionsTab.style.display=signedIn?'inline-flex':'none';
-    var operationsTab=document.querySelector('.tab-link[data-tab="operations"]');
-    if(operationsTab) operationsTab.style.display=signedIn&&manager?'inline-flex':'none';
-    var name=document.getElementById('csaSignedInName');
-    var role=document.getElementById('csaSignedInRole');
-    if(name&&currentUser) name.textContent=(currentProfile&&currentProfile.display_name)||(currentUser.user_metadata&&currentUser.user_metadata.display_name)||usernameFor(currentUser,currentProfile);
-    if(role&&currentUser) role.textContent=manager?'Manager':'Casino Access'+((currentProfile&&currentProfile.rank&&currentProfile.rank!=='Member')?' · '+currentProfile.rank:'');
-    if(signedIn&&manager) window.renderCsaMemberDirectory();
+  if(form&&form.id==='csaAddMemberForm'){
+   e.preventDefault();
+   if(!signedIn||!isManager(currentUser)){notify('Manager or Overseer permission required.');return;}
+   var username=String(document.getElementById('newMemberUsername').value||'').trim();
+   var password=String(document.getElementById('newMemberPassword').value||'');
+   var role=String(document.getElementById('newMemberRole').value||'Casino Access');
+   var loreName=String(document.getElementById('newMemberLore').value||'').trim();
+   var robloxUsername=username;
+   var faction=String(document.getElementById('newMemberFaction').value||'').trim();
+   if(!username||!password||!loreName||!robloxUsername||!faction){notify('Roblox username, password, lore name, and faction in CSA planets are all required.');return;}
+   if(username.length<3){notify('Roblox username must be at least 3 characters.');return;}
+   if(password.length<4){notify('Password must be at least 4 characters.');return;}
+   var accounts=readAccounts();
+   if(accounts.some(function(a){return String(a.username||'').toLowerCase()===username.toLowerCase();})){notify('That username already exists.');return;}
+   var rank=role==='CSA Casino Affiliates Manager'?'Manager':(role==='Overseer'?'Overseer':'Member');
+   accounts.push({username:username,password:password,role:role,rank:rank,loreName:loreName,robloxUsername:robloxUsername,faction:faction,createdAt:new Date().toISOString(),createdBy:currentUser.username});
+   writeAccounts(accounts);form.reset();renderCsaMemberDirectory();notify('Created account for '+username+'. They can now sign in in this browser.');
   }
-  window.renderCsaMemberDirectory=async function(){
-    var body=document.getElementById('csaMemberDirectory'),count=document.getElementById('csaMemberCount');
-    if(!body)return;
-    if(!signedIn||!isManager(currentUser,currentProfile)){
-      body.innerHTML='<tr><td colspan="6" class="empty">Manager or Overseer sign-in required.</td></tr>';return;
-    }
-    body.innerHTML='<tr><td colspan="6" class="empty">Loading personnel…</td></tr>';
-    var result=await supa.from('csa_players').select('username,display_name,role,rank,lore_name,roblox_username,faction,created_at').order('created_at',{ascending:false});
-    if(result.error){
-      console.error('CSA personnel load failed:',result.error);
-      body.innerHTML='<tr><td colspan="6" class="empty">Could not load personnel. Check the csa_players SELECT policy.</td></tr>';return;
-    }
-    var accounts=result.data||[];
-    if(count)count.textContent=accounts.length+' personnel account'+(accounts.length===1?'':'s');
-    if(!accounts.length){body.innerHTML='<tr><td colspan="6" class="empty">No personnel profiles found.</td></tr>';return;}
-    body.innerHTML=accounts.map(function(a){
-      var created='—';try{if(a.created_at)created=new Date(a.created_at).toLocaleDateString();}catch(e){}
-      var lore=a.lore_name||a.display_name||a.rank||'—';
-      return '<tr style="border-bottom:1px solid var(--line)">'+
-        '<td style="padding:11px 6px;min-width:110px"><strong>'+esc(lore)+'</strong></td>'+
-        '<td style="padding:11px 6px;min-width:110px">'+esc(a.roblox_username||a.username||'—')+'</td>'+
-        '<td style="padding:11px 6px;min-width:150px">'+esc(a.role||'Casino Access')+(a.rank&&a.rank!=='Member'?' · '+esc(a.rank):'')+'</td>'+
-        '<td style="padding:11px 6px;min-width:130px">'+esc(a.faction||'—')+'</td>'+
-        '<td style="padding:11px 6px;white-space:nowrap">'+esc(created)+'</td>'+
-        '<td style="padding:11px 6px;white-space:nowrap"><span class="hint">Supabase account</span></td></tr>';
-    }).join('');
-  };
-  window.removeCsaMember=function(){notify('Account deletion must be performed through a protected server function; no account was deleted.');};
-  window.openPortal=function(){
-    openTab('portal');
-    var u=document.getElementById('loginUsername');if(u)setTimeout(function(){u.focus();},50);
-  };
-  async function syncAuth(session){
-    currentUser=session&&session.user||null;
-    signedIn=!!currentUser;
-    currentProfile=currentUser?await profileFor(currentUser):null;
-    authReady=true;
-    renderAuth();
-    if(signedIn && isManager(currentUser,currentProfile)) {
-      // Keep the manager view available when the app is opened directly on its route.
-      if(location.hash==='#manager'||location.hash==='#operations') {
-        var requested=location.hash.slice(1);
-        if(requested==='manager'||requested==='operations') window.openTab(requested);
-      }
-    }
-    if(typeof renderSessions==='function') renderSessions();
-  }
-  function loginEmail(username){
-    // Website usernames are mapped to the internal email used by CSA player accounts.
-    return String(username||'').trim().toLowerCase()+'@players.csa.invalid';
-  }
-  document.addEventListener('submit',async function(e){
-    var form=e.target;
-    if(!form || (form.id!=='csaLoginForm' && form.id!=='csaAddMemberForm')) return;
-    e.preventDefault();e.stopImmediatePropagation();
-    if(!supa){notify('Supabase did not initialize. Check your connection and publish the latest file.');return;}
-    if(form.id==='csaLoginForm'){
-      var username=String((document.getElementById('loginUsername')||{}).value||'').trim();
-      var password=String((document.getElementById('loginPassword')||{}).value||'');
-      if(!username||!password){notify('Enter your username and password.');return;}
-      authBusy=true;
-      var result=await supa.auth.signInWithPassword({email:loginEmail(username),password:password});
-      authBusy=false;
-      if(result.error){notify('Login failed: '+result.error.message);return;}
-      await syncAuth(result.data.session);
-      var pass=document.getElementById('loginPassword');if(pass)pass.value='';
-      notify('Signed in as '+usernameFor(currentUser,currentProfile)+(isManager(currentUser,currentProfile)?'. Manager access confirmed.':'. This account does not have a manager role.'));
-      if(isManager(currentUser,currentProfile)) window.openTab('manager');
-      else if(document.querySelector('.page.active')?.dataset.page==='sessions') window.openTab('sessions');
-      return;
-    }
-    if(!signedIn||!isManager(currentUser,currentProfile)){notify('Manager or Overseer permission required.');return;}
-    var username=String(document.getElementById('newMemberUsername').value||'').trim();
-    var password=String(document.getElementById('newMemberPassword').value||'');
-    var role=String(document.getElementById('newMemberRole').value||'Casino Access');
-    var loreName=String(document.getElementById('newMemberLore').value||'').trim();
-    var faction=String(document.getElementById('newMemberFaction').value||'').trim();
-    if(!username||!password||!loreName||!faction){notify('Roblox username, password, lore name, and faction are required.');return;}
-    if(!/^[a-zA-Z0-9_-]{3,24}$/.test(username)){notify('Username must be 3–24 letters, numbers, underscores, or hyphens.');return;}
-    if(password.length<10||password.length>72){notify('Password must be 10–72 characters.');return;}
-    var sessionResult=await supa.auth.getSession();
-    var accessToken=sessionResult.data&&sessionResult.data.session&&sessionResult.data.session.access_token;
-    if(!accessToken){notify('Your session expired. Please log in again.');return;}
-    var response;
-    try{
-      response=await fetch(SUPABASE_URL+'/functions/v1/csa-create-player',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','apikey':SUPABASE_PUBLISHABLE_KEY,'Authorization':'Bearer '+accessToken},
-        body:JSON.stringify({username:username,password:password,display_name:loreName,credits:1000})
-      });
-    }catch(err){notify('Could not reach the account service. Check the deployed Edge Function.');return;}
-    var payload={};try{payload=await response.json();}catch(e){}
-    if(!response.ok||!payload.success){notify('Account creation failed: '+(payload.error||('HTTP '+response.status)));return;}
-    form.reset();
-    await window.renderCsaMemberDirectory();
-    notify('Created Supabase account for '+username+'. Note: role/faction fields need a backend update before they are stored.');
-  },true);
-  var logout=document.getElementById('csaLogoutBtn');
-  if(logout)logout.addEventListener('click',async function(){
-    if(supa)await supa.auth.signOut();
-    currentUser=null;currentProfile=null;signedIn=false;renderAuth();
-    var u=document.getElementById('loginUsername');if(u)u.value='';
-    var p=document.getElementById('loginPassword');if(p)p.value='';
-    if(document.querySelector('.page.active')?.dataset.page==='manager'||document.querySelector('.page.active')?.dataset.page==='sessions')window.openTab('portal');
-    if(typeof renderSessions==='function')renderSessions();
-    notify('You have been signed out.');
-  });
-  var originalOpenTab=window.openTab;
-  window.openTab=function(name){
-    if(!authReady && (name==='manager'||name==='operations'||name==='sessions')){notify('Checking your Supabase sign-in…');return;}
-    if(name==='sessions'&&!signedIn){notify('Please sign in to view or join sessions.');name='portal';}
-    if((name==='manager'||name==='operations')&&(!signedIn||!isManager(currentUser,currentProfile))){
-      notify('Manager or Overseer permission required.');name='portal';
-    }
-    originalOpenTab(name);
-    if(name==='manager'&&signedIn&&isManager(currentUser,currentProfile))window.renderCsaMemberDirectory();
-  };
-  (async function init(){
-    try{
-      if(!window.supabase||!window.supabase.createClient) throw new Error('Supabase library did not load');
-      supa=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
-      window.csaSupabase=supa;
-      var sessionResult=await supa.auth.getSession();
-      await syncAuth(sessionResult.data&&sessionResult.data.session);
-      supa.auth.onAuthStateChange(function(event,session){
-        // Avoid doing profile queries directly inside the auth callback's lock.
-        setTimeout(function(){syncAuth(session);},0);
-      });
-      if(!authReady) {authReady=true;renderAuth();}
-    }catch(err){
-      console.error('CSA Supabase initialization failed:',err);
-      authReady=true;renderAuth();
-      notify('Supabase could not initialize. Check the publishable key and browser console.');
-    }
-  })();
+ },true);
+ var logout=document.getElementById('csaLogoutBtn');
+ if(logout)logout.addEventListener('click',function(){signedIn=false;currentUser=null;window.csaCurrentUser=null;renderAuth();var u=document.getElementById('loginUsername');if(u)u.value='';var p=document.getElementById('loginPassword');if(p)p.value='';if(document.querySelector('.page.active')?.dataset.page==='manager'||document.querySelector('.page.active')?.dataset.page==='sessions')openTab('portal');renderSessions();notify('You have been signed out.');});
+ var baseOpenTab=window.openTab;
+ window.openTab=function(name){
+  if(name==='sessions'&&!signedIn){notify('Please sign in to view or join sessions.');name='portal';}
+  if(name==='manager'&&(!signedIn||!isManager(currentUser))){notify('The Manager tab is available only to Manager and Overseer accounts.');name='portal';}
+  if(name==='operations'&&(!signedIn||!isManager(currentUser))){notify('Operations is available only to the Manager and Overseer.');name='portal';}
+  baseOpenTab(name);
+ };
+ readAccounts();renderAuth();
+ if(document.querySelector('.page.active')?.dataset.page==='sessions'&&!signedIn)baseOpenTab('portal');
+ renderSessions();
 })();
-
 </script>
 
 
