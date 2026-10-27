@@ -1519,4 +1519,125 @@ window.openPortal=function(){openTab('portal');var u=document.getElementById('lo
 })();
 </script>
 
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* CSA Supabase integration. Uses Supabase Auth; never stores passwords in localStorage. */
+(function(){
+ 'use strict';
+ const SUPABASE_URL='https://qmaodespbolrykcthcsz.supabase.co';
+ const SUPABASE_KEY='sb_publishable__ab09-yEVTA75Tiva12RTQ_qtNk1QKW';
+ const CREATE_PLAYER_URL=SUPABASE_URL+'/functions/v1/csa-create-player';
+ if(!window.supabase||!window.supabase.createClient){console.error('Supabase client did not load');return;}
+ const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+ window.csaSupabase=db;
+ let signedUser=null,profile=null,syncing=false;
+ const $=id=>document.getElementById(id);
+ const managerRole=r=>r==='CSA Casino Affiliates Manager'||r==='Overseer'||r==='Manager'||r==='Owner';
+ function toast(msg){if(typeof window.notify==='function')window.notify(msg);else alert(msg)}
+ async function loadProfile(user,username){
+   let q=await db.from('csa_players').select('*').eq('auth_user_id',user.id).maybeSingle();
+   if(q.error)console.warn('Profile read:',q.error.message);
+   profile=q.data||{};
+   const meta=user.user_metadata||{},app=user.app_metadata||{};
+   profile.username=profile.username||meta.username||username||((user.email||'').split('@')[0]);
+   profile.display_name=profile.display_name||meta.display_name||profile.username;
+   profile.role=profile.role||(app.role==='manager'?'CSA Casino Affiliates Manager':'Casino Access');
+   profile.rank=profile.rank||(app.role==='manager'?'Owner':'Member');
+   profile.lore_name=profile.lore_name||meta.lore_name||profile.display_name;
+   profile.faction=profile.faction||meta.faction||'';
+   profile.credits=Number(profile.credits||1000);
+   signedUser=user;
+   window.csaCurrentUser={id:user.id,username:profile.username,displayName:profile.display_name,role:profile.role,rank:profile.rank,loreName:profile.lore_name,faction:profile.faction,credits:profile.credits};
+   window.csaIsSignedIn=()=>!!signedUser;
+   window.csaIsManager=()=>!!signedUser&&managerRole(profile.role);
+   renderAuth();
+ }
+ function renderAuth(){
+   const isIn=!!signedUser,manager=!!(isIn&&managerRole(profile&&profile.role));
+   const form=$('csaLoginForm'),panel=$('csaSignedInPanel'),tab=$('csaManagerTab');
+   if(form)form.style.display=isIn?'none':'block';
+   if(panel)panel.style.display=isIn?'block':'none';
+   if(tab)tab.style.display=manager?'inline-block':'none';
+   const hostPanel=$('hostSessionPanel');if(hostPanel)hostPanel.style.display=manager?'block':'none';
+   const hostInput=$('hostName');if(hostInput){hostInput.value=manager?(profile.username||''):'';hostInput.readOnly=manager;}
+   const st=document.querySelector('.tab-link[data-tab="sessions"]');if(st)st.style.display=isIn?'inline-flex':'none';
+   const ot=document.querySelector('.tab-link[data-tab="operations"]');if(ot)ot.style.display=manager?'inline-flex':'none';
+   if($('csaSignedInName')&&profile)$('csaSignedInName').textContent=profile.display_name||profile.username;
+   if($('csaSignedInRole')&&profile)$('csaSignedInRole').textContent=(profile.role||'Casino Access')+(profile.rank&&profile.rank!=='Member'?' · '+profile.rank:'');
+   const kicker=panel&&panel.querySelector('.kicker');if(kicker)kicker.textContent='Signed in securely';
+   if(isIn&&manager&&typeof window.renderCsaMemberDirectory==='function')window.renderCsaMemberDirectory();
+ }
+ async function pullSessions(){
+   if(!signedUser)return;
+   const {data,error}=await db.from('csa_sessions').select('id,session_name,status,session_data,created_by,created_at,updated_at').order('created_at',{ascending:false});
+   if(error){console.warn('Session sync read failed:',error.message);return;}
+   const remote=(data||[]).map(row=>({...((row.session_data&&typeof row.session_data==='object')?row.session_data:{}),id:(row.session_data&&row.session_data.id)||row.id,name:(row.session_data&&row.session_data.name)||row.session_name,status:(row.session_data&&row.session_data.status)||row.status}));
+   // Only overwrite browser cache when database has authoritative rows.
+   if(remote.length){try{localStorage.setItem('csaCasinoAffiliatesSessionsV1',JSON.stringify(remote));}catch(e){};if(window.__csaMemoryStore)window.__csaMemoryStore['csaCasinoAffiliatesSessionsV1']=JSON.stringify(remote);}
+   if(typeof window.renderSessions==='function')window.renderSessions();
+ }
+ async function pushSessions(items){
+   if(!signedUser||!window.csaIsManager()||syncing)return;
+   syncing=true;
+   try{
+     const {data:existing,error:readErr}=await db.from('csa_sessions').select('id,session_data');
+     if(readErr)throw readErr;
+     const byKey=new Map((existing||[]).map(r=>[String(r.session_data&&r.session_data.id||r.id),r.id]));
+     const wanted=new Set(items.map(x=>String(x.id)));
+     for(const old of existing||[]){const k=String(old.session_data&&old.session_data.id||old.id);if(!wanted.has(k)){const del=await db.from('csa_sessions').delete().eq('id',old.id);if(del.error)throw del.error;}}
+     for(const item of items){const payload={session_name:String(item.name||'Untitled session').slice(0,120),status:String(item.status||'open'),session_data:item,created_by:signedUser.id,updated_at:new Date().toISOString()};const oldId=byKey.get(String(item.id));let result=oldId?await db.from('csa_sessions').update(payload).eq('id',oldId):await db.from('csa_sessions').insert(payload);if(result.error)throw result.error;}
+   }catch(e){console.error('Session sync failed:',e);toast('Could not sync sessions to Supabase: '+(e.message||'database permission error'));}
+   finally{syncing=false;}
+ }
+ const oldSave=window.saveSessions;
+ window.saveSessions=function(items){if(typeof oldSave==='function')oldSave(items);pushSessions(items);};
+ window.csaRefreshSharedSessions=pullSessions;
+ // Replace local prototype login with real Supabase Auth username login.
+ document.addEventListener('submit',async function(e){
+   const f=e.target;if(!f||f.id!=='csaLoginForm')return;e.preventDefault();
+   const username=String(($('loginUsername')||{}).value||'').trim();const password=String(($('loginPassword')||{}).value||'');
+   if(!username||!password){toast('Enter your username and password.');return;}
+   const email=username.toLowerCase()+'@players.csa.invalid';
+   const {data,error}=await db.auth.signInWithPassword({email,password});
+   if(error||!data.user){toast('Sign-in failed. Check the username/password and confirm the account exists in Supabase Auth.');return;}
+   await loadProfile(data.user,username);if($('loginPassword'))$('loginPassword').value='';await pullSessions();toast('Signed in securely as '+profile.username+'.');
+ },true);
+ // Replace account creation with the deployed Edge Function; profile fields updated only after Auth creation.
+ document.addEventListener('submit',async function(e){
+   const f=e.target;if(!f||f.id!=='csaAddMemberForm')return;e.preventDefault();
+   if(!signedUser||!window.csaIsManager()){toast('Manager or Overseer permission required.');return;}
+   const username=String(($('newMemberUsername')||{}).value||'').trim();const password=String(($('newMemberPassword')||{}).value||'');const role=String(($('newMemberRole')||{}).value||'Casino Access');const lore=String(($('newMemberLore')||{}).value||'').trim();const faction=String(($('newMemberFaction')||{}).value||'').trim();
+   if(!/^[a-zA-Z0-9_-]{3,24}$/.test(username)){toast('Username must be 3–24 letters, numbers, underscores or hyphens.');return;}
+   if(password.length<10||password.length>72){toast('For secure accounts, use a password of 10–72 characters.');return;}
+   if(!lore||!faction){toast('Enter the lore name and faction.');return;}
+   const {data:{session},error:sessionErr}=await db.auth.getSession();if(sessionErr||!session){toast('Please sign in again.');return;}
+   const resp=await fetch(CREATE_PLAYER_URL,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':'Bearer '+session.access_token},body:JSON.stringify({username,password,display_name:lore,credits:1000})});
+   let body={};try{body=await resp.json()}catch(e){}
+   if(!resp.ok||!body.success){toast('Account creation failed: '+(body.error||resp.statusText||'Unknown error'));return;}
+   const {data:createdUser,error:lookupError}=await db.from('csa_players').select('id,auth_user_id').eq('username',username).maybeSingle();
+   if(lookupError||!createdUser){toast('Account was created, but its profile could not be found. Contact the site manager before retrying.');return;}
+   const rank=role==='CSA Casino Affiliates Manager'?'Manager':role==='Overseer'?'Overseer':'Member';
+   const update=await db.from('csa_players').update({role,rank,lore_name:lore,roblox_username:username,faction}).eq('auth_user_id',createdUser.auth_user_id);
+   if(update.error){toast('Account created, but profile role details did not save: '+update.error.message);return;}
+   f.reset();await window.renderCsaMemberDirectory();toast('Created account for '+username+'.');
+ },true);
+ window.renderCsaMemberDirectory=async function(){
+   const body=$('csaMemberDirectory'),count=$('csaMemberCount');if(!body)return;
+   if(!signedUser||!window.csaIsManager()){body.innerHTML='<tr><td colspan="6" class="empty">Manager or Overseer sign-in required.</td></tr>';return;}
+   body.innerHTML='<tr><td colspan="6" class="empty">Loading shared personnel…</td></tr>';
+   const {data,error}=await db.from('csa_players').select('auth_user_id,username,display_name,role,rank,lore_name,faction,created_at').order('created_at',{ascending:false});
+   if(error){body.innerHTML='<tr><td colspan="6" class="empty">Could not load personnel: '+String(error.message).replace(/[&<>]/g,'')+'</td></tr>';return;}
+   if(count)count.textContent=(data||[]).length+' personnel account'+((data||[]).length===1?'':'s');
+   body.innerHTML=(data||[]).map(a=>{const created=a.created_at?new Date(a.created_at).toLocaleDateString():'—';return '<tr style="border-bottom:1px solid var(--line)"><td style="padding:11px 6px;min-width:110px"><strong>'+esc(a.lore_name||a.display_name||'—')+'</strong></td><td style="padding:11px 6px;min-width:110px">'+esc(a.roblox_username||a.username||'—')+'</td><td style="padding:11px 6px;min-width:150px">'+esc(a.role||'Casino Access')+(a.rank&&a.rank!=='Member'?' · '+esc(a.rank):'')+'</td><td style="padding:11px 6px;min-width:130px">'+esc(a.faction||'—')+'</td><td style="padding:11px 6px;white-space:nowrap">'+esc(created)+'</td><td style="padding:11px 6px;white-space:nowrap">—</td></tr>';}).join('')||'<tr><td colspan="6" class="empty">No personnel accounts found.</td></tr>';
+ };
+ // Remove local-only logout and local credential bootstrapping.
+ document.addEventListener('click',async function(e){const b=e.target&&e.target.closest?e.target.closest('#csaLogoutBtn'):null;if(!b)return;e.preventDefault();await db.auth.signOut();signedUser=null;profile=null;window.csaCurrentUser=null;renderAuth();openTab('portal');toast('Signed out.');},true);
+ // Delete old local-only password/account store so it cannot be used as a fallback.
+ try{localStorage.removeItem('csaCasinoAccounts_v1');}catch(e){}
+ (async function init(){const {data,error}=await db.auth.getSession();if(error){console.error(error);return;}if(data.session){const {data:u}=await db.auth.getUser();if(u&&u.user){await loadProfile(u.user);await pullSessions();}}else{window.csaIsSignedIn=()=>false;window.csaIsManager=()=>false;window.csaCurrentUser=null;renderAuth();}})();
+ db.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_OUT'){signedUser=null;profile=null;window.csaCurrentUser=null;renderAuth();}});
+})();
+</script>
+
 </body></html>
