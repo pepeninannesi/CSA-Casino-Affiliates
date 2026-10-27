@@ -1595,7 +1595,7 @@ window.openPortal=function(){openTab('portal');var u=document.getElementById('lo
  window.csaRefreshSharedSessions=pullSessions;
  // Replace local prototype login with real Supabase Auth username login.
  document.addEventListener('submit',async function(e){
-   const f=e.target;if(!f||f.id!=='csaLoginForm')return;e.preventDefault();
+   const f=e.target;if(!f||f.id!=='csaLoginForm')return;e.preventDefault();e.stopImmediatePropagation();
    const username=String(($('loginUsername')||{}).value||'').trim();const password=String(($('loginPassword')||{}).value||'');
    if(!username||!password){toast('Enter your username and password.');return;}
    const email=username.toLowerCase()+'@players.csa.invalid';
@@ -1605,7 +1605,7 @@ window.openPortal=function(){openTab('portal');var u=document.getElementById('lo
  },true);
  // Replace account creation with the deployed Edge Function; profile fields updated only after Auth creation.
  document.addEventListener('submit',async function(e){
-   const f=e.target;if(!f||f.id!=='csaAddMemberForm')return;e.preventDefault();
+   const f=e.target;if(!f||f.id!=='csaAddMemberForm')return;e.preventDefault();e.stopImmediatePropagation();
    if(!signedUser||!window.csaIsManager()){toast('Manager or Overseer permission required.');return;}
    const username=String(($('newMemberUsername')||{}).value||'').trim();const password=String(($('newMemberPassword')||{}).value||'');const role=String(($('newMemberRole')||{}).value||'Casino Access');const lore=String(($('newMemberLore')||{}).value||'').trim();const faction=String(($('newMemberFaction')||{}).value||'').trim();
    if(!/^[a-zA-Z0-9_-]{3,24}$/.test(username)){toast('Username must be 3–24 letters, numbers, underscores or hyphens.');return;}
