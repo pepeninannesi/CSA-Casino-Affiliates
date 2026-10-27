@@ -1533,7 +1533,7 @@ window.openPortal=function(){openTab('portal');var u=document.getElementById('lo
  window.csaSupabase=db;
  let signedUser=null,profile=null,syncing=false;
  const $=id=>document.getElementById(id);
- const managerRole=r=>r==='CSA Casino Affiliates Manager'||r==='Overseer'||r==='Manager'||r==='Owner';
+ const managerRole=r=>['csa casino affiliates manager','overseer','manager','owner'].includes(String(r||'').trim().toLowerCase());
  function toast(msg){if(typeof window.notify==='function')window.notify(msg);else alert(msg)}
  async function loadProfile(user,username){
    let q=await db.from('csa_players').select('*').eq('auth_user_id',user.id).maybeSingle();
@@ -1550,11 +1550,11 @@ window.openPortal=function(){openTab('portal');var u=document.getElementById('lo
    signedUser=user;
    window.csaCurrentUser={id:user.id,username:profile.username,displayName:profile.display_name,role:profile.role,rank:profile.rank,loreName:profile.lore_name,faction:profile.faction,credits:profile.credits};
    window.csaIsSignedIn=()=>!!signedUser;
-   window.csaIsManager=()=>!!signedUser&&managerRole(profile.role);
+   window.csaIsManager=()=>!!signedUser&&(managerRole(profile&&profile.role)||managerRole(profile&&profile.rank)||managerRole(signedUser.app_metadata&&signedUser.app_metadata.role)||managerRole(signedUser.user_metadata&&signedUser.user_metadata.role));
    renderAuth();
  }
  function renderAuth(){
-   const isIn=!!signedUser,manager=!!(isIn&&managerRole(profile&&profile.role));
+   const isIn=!!signedUser,manager=!!(isIn&&window.csaIsManager&&window.csaIsManager());
    const form=$('csaLoginForm'),panel=$('csaSignedInPanel'),tab=$('csaManagerTab');
    if(form)form.style.display=isIn?'none':'block';
    if(panel)panel.style.display=isIn?'block':'none';
